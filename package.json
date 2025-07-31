@@ -1,0 +1,12 @@
+{
+  "name": "allo-trading-engine",
+  "description": "A decentralized trading engine with order book functionality",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "hardhat": "^2.26.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
+    "@openzeppelin/contracts-upgradeable": "^5.4.0"
+  }
+}
