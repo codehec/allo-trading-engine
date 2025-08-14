@@ -1,12 +1,28 @@
 {
   "name": "allo-trading-engine",
   "description": "A decentralized trading engine with order book functionality",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:bsc-testnet": "hardhat run scripts/deploy-bsc-testnet.ts --network bscTestnet",
+    "deploy:bsc-mainnet": "hardhat run scripts/deploy-bsc-testnet.ts --network bscMainnet",
+    "deploy:trading-engine": "hardhat run scripts/deploy-trading-engine-bsc.ts --network bscTestnet",
+    "test:trading-engine": "hardhat run scripts/test-trading-engine-deployment.ts --network bscTestnet",
+    "verify:trading-engine": "hardhat run scripts/verify-contracts-bsc.ts --network bscTestnet",
+    "verify:bsc-testnet": "hardhat run scripts/verify-bsc-testnet.ts --network bscTestnet",
+    "node": "hardhat node",
+    "clean": "hardhat clean"
+  },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "fs-extra": "^11.3.1",
     "hardhat": "^2.26.1"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",
-    "@openzeppelin/contracts-upgradeable": "^5.4.0"
+    "@openzeppelin/contracts-upgradeable": "^5.4.0",
+    "@pythnetwork/pyth-sdk-solidity": "^4.2.0",
+    "dotenv": "^17.2.1",
+    "hardhat-tracer": "^3.2.1"
   }
 }

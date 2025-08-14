@@ -20,14 +20,19 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         bool isMarketOrder;
         uint256 timestamp;
         bool isActive;
-        uint256 quoteAmount; 
+        uint256 quoteAmount;
+        uint256 filledAmount;
     }
     
     struct OrderBook {
         mapping(uint256 => Order) orders;
-        uint256[] buyOrderIds;
-        uint256[] sellOrderIds;
+        mapping(uint256 => bool) activeBuyOrders;
+        mapping(uint256 => bool) activeSellOrders;
         uint256 nextOrderId;
+        uint256 activeBuyOrderCount;
+        uint256 activeSellOrderCount;
+        uint256 totalBuyOrderCount;
+        uint256 totalSellOrderCount;
     }
     
     event OrderPlaced(uint256 orderId, address trader, address baseToken, address quoteToken, uint256 amount, uint256 price, bool isBuy, bool isMarketOrder);
@@ -92,25 +97,25 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         
         require(_isTokenPairValid(baseToken, quoteToken), "Token pair not supported by oracle");
         
+        uint256 marketPrice = _getMarketPrice(baseToken, quoteToken, isBuy);
+        require(marketPrice > 0, "Oracle price not available");
+        
         orderId = orderBook.nextOrderId++;
         
-        uint256 quoteAmount = 0;
-        if (isBuy) {
-            uint256 marketPrice = _getLatestMarketPrice(baseToken, quoteToken, isBuy);
-            quoteAmount = amount * marketPrice;
-        }
+        uint256 quoteAmount = amount * marketPrice / 10**18;
         
         Order memory newOrder = Order({
             trader: msg.sender,
             baseToken: baseToken,
             quoteToken: quoteToken,
             amount: amount,
-            price: 0,
+            price: marketPrice,
             isBuy: isBuy,
             isMarketOrder: true,
             timestamp: block.timestamp,
             isActive: true,
-            quoteAmount: quoteAmount
+            quoteAmount: quoteAmount,
+            filledAmount: 0
         });
         
         orderBook.orders[orderId] = newOrder;
@@ -118,13 +123,17 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         
         if (isBuy) {
             _transferFromUser(msg.sender, quoteToken, quoteAmount);
-            orderBook.buyOrderIds.push(orderId);
+            orderBook.activeBuyOrders[orderId] = true;
+            orderBook.activeBuyOrderCount++;
+            orderBook.totalBuyOrderCount++;
         } else {
             _transferFromUser(msg.sender, baseToken, amount);
-            orderBook.sellOrderIds.push(orderId);
+            orderBook.activeSellOrders[orderId] = true;
+            orderBook.activeSellOrderCount++;
+            orderBook.totalSellOrderCount++;
         }
         
-        emit OrderPlaced(orderId, msg.sender, baseToken, quoteToken, amount, 0, isBuy, true);
+        emit OrderPlaced(orderId, msg.sender, baseToken, quoteToken, amount, marketPrice, isBuy, true);
         
         _matchOrders();
         
@@ -152,10 +161,7 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         
         orderId = orderBook.nextOrderId++;
         
-        uint256 quoteAmount = 0;
-        if (isBuy) {
-            quoteAmount = amount * price;
-        }
+        uint256 quoteAmount = amount * price / 10**18;
         
         Order memory newOrder = Order({
             trader: msg.sender,
@@ -167,7 +173,8 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
             isMarketOrder: false,
             timestamp: block.timestamp,
             isActive: true,
-            quoteAmount: quoteAmount
+            quoteAmount: quoteAmount,
+            filledAmount: 0
         });
         
         orderBook.orders[orderId] = newOrder;
@@ -175,10 +182,14 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         
         if (isBuy) {
             _transferFromUser(msg.sender, quoteToken, quoteAmount);
-            orderBook.buyOrderIds.push(orderId);
+            orderBook.activeBuyOrders[orderId] = true;
+            orderBook.activeBuyOrderCount++;
+            orderBook.totalBuyOrderCount++;
         } else {
             _transferFromUser(msg.sender, baseToken, amount);
-            orderBook.sellOrderIds.push(orderId);
+            orderBook.activeSellOrders[orderId] = true;
+            orderBook.activeSellOrderCount++;
+            orderBook.totalSellOrderCount++;
         }
         
         emit OrderPlaced(orderId, msg.sender, baseToken, quoteToken, amount, price, isBuy, false);
@@ -196,9 +207,28 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         order.isActive = false;
         
         if (order.isBuy) {
-            _transferToUser(msg.sender, order.quoteToken, order.quoteAmount);
+            if (orderBook.activeBuyOrders[orderId]) {
+                orderBook.activeBuyOrders[orderId] = false;
+                orderBook.activeBuyOrderCount--;
+            }
         } else {
-            _transferToUser(msg.sender, order.baseToken, order.amount);
+            if (orderBook.activeSellOrders[orderId]) {
+                orderBook.activeSellOrders[orderId] = false;
+                orderBook.activeSellOrderCount--;
+            }
+        }
+        
+        uint256 remainingAmount = order.amount - order.filledAmount;
+        uint256 remainingQuoteAmount = order.quoteAmount - (order.filledAmount * order.price);
+        
+        if (order.isBuy) {
+            if (remainingQuoteAmount > 0) {
+                _transferToUser(msg.sender, order.quoteToken, remainingQuoteAmount);
+            }
+        } else {
+            if (remainingAmount > 0) {
+                _transferToUser(msg.sender, order.baseToken, remainingAmount);
+            }
         }
         
         emit OrderCancelled(orderId);
@@ -220,7 +250,8 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         bool isMarketOrder,
         uint256 timestamp,
         bool isActive,
-        uint256 quoteAmount
+        uint256 quoteAmount,
+        uint256 filledAmount
     ) {
         Order memory order = orderBook.orders[orderId];
         return (
@@ -233,7 +264,8 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
             order.isMarketOrder,
             order.timestamp,
             order.isActive,
-            order.quoteAmount
+            order.quoteAmount,
+            order.filledAmount
         );
     }
 
@@ -242,19 +274,19 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
     }
 
     function _getActiveBuyOrders() internal view returns (uint256[] memory) {
-        uint256[] memory activeOrders = new uint256[](orderBook.buyOrderIds.length);
+        uint256[] memory tempOrders = new uint256[](orderBook.activeBuyOrderCount);
         uint256 activeCount = 0;
         
-        for (uint256 i = 0; i < orderBook.buyOrderIds.length; i++) {
-            uint256 orderId = orderBook.buyOrderIds[i];
-            if (orderBook.orders[orderId].isActive) {
-                activeOrders[activeCount] = orderId;
+        for (uint256 i = 0; i < orderBook.nextOrderId && activeCount < orderBook.activeBuyOrderCount; i++) {
+            if (orderBook.activeBuyOrders[i] && orderBook.orders[i].isActive) {
+                tempOrders[activeCount] = i;
                 activeCount++;
             }
         }
         
-        assembly {
-            mstore(activeOrders, activeCount)
+        uint256[] memory activeOrders = new uint256[](activeCount);
+        for (uint256 i = 0; i < activeCount; i++) {
+            activeOrders[i] = tempOrders[i];
         }
         
         return activeOrders;
@@ -265,25 +297,25 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
     }
 
     function _getActiveSellOrders() internal view returns (uint256[] memory) {
-        uint256[] memory activeOrders = new uint256[](orderBook.sellOrderIds.length);
+        uint256[] memory tempOrders = new uint256[](orderBook.activeSellOrderCount);
         uint256 activeCount = 0;
         
-        for (uint256 i = 0; i < orderBook.sellOrderIds.length; i++) {
-            uint256 orderId = orderBook.sellOrderIds[i];
-            if (orderBook.orders[orderId].isActive) {
-                activeOrders[activeCount] = orderId;
+        for (uint256 i = 0; i < orderBook.nextOrderId && activeCount < orderBook.activeSellOrderCount; i++) {
+            if (orderBook.activeSellOrders[i] && orderBook.orders[i].isActive) {
+                tempOrders[activeCount] = i;
                 activeCount++;
             }
         }
         
-        assembly {
-            mstore(activeOrders, activeCount)
+        uint256[] memory activeOrders = new uint256[](activeCount);
+        for (uint256 i = 0; i < activeCount; i++) {
+            activeOrders[i] = tempOrders[i];
         }
         
         return activeOrders;
     }
 
-    function _getLatestMarketPrice(address baseToken, address quoteToken, bool isBuy) internal view returns (uint256) {
+    function _getMarketPrice(address baseToken, address quoteToken, bool isBuy) internal view returns (uint256) {
         uint256 bestPrice = 0;
         
         if (isBuy) {
@@ -342,78 +374,102 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         uint256[] memory buyOrders = _getActiveBuyOrders();
         uint256[] memory sellOrders = _getActiveSellOrders();
         
-        uint256 buyIndex = 0;
-        uint256 sellIndex = 0;
-        
-        while (buyIndex < buyOrders.length && sellIndex < sellOrders.length) {
-            uint256 buyOrderId = buyOrders[buyIndex];
-            uint256 sellOrderId = sellOrders[sellIndex];
-            
+        for (uint256 i = 0; i < buyOrders.length; i++) {
+            uint256 buyOrderId = buyOrders[i];
             Order storage buyOrder = orderBook.orders[buyOrderId];
-            Order storage sellOrder = orderBook.orders[sellOrderId];
             
-            if (buyOrder.baseToken != sellOrder.baseToken || buyOrder.quoteToken != sellOrder.quoteToken) {
-                buyIndex++;
+            if (!buyOrder.isActive || buyOrder.filledAmount >= buyOrder.amount) {
                 continue;
             }
             
-            uint256 matchAmount = buyOrder.amount < sellOrder.amount ? 
-                buyOrder.amount : sellOrder.amount;
+            uint256 remainingBuyAmount = buyOrder.amount - buyOrder.filledAmount;
             
-            uint256 matchPrice = _calculateMatchPrice(buyOrder, sellOrder);
-            
-            _executeTrade(buyOrderId, sellOrderId, matchAmount, matchPrice);
-            
-            buyOrder.amount -= matchAmount;
-            sellOrder.amount -= matchAmount;
-            
-            if (buyOrder.amount == 0) {
-                buyOrder.isActive = false;
-                buyIndex++;
-            }
-            if (sellOrder.amount == 0) {
-                sellOrder.isActive = false;
-                sellIndex++;
+            for (uint256 j = 0; j < sellOrders.length; j++) {
+                uint256 sellOrderId = sellOrders[j];
+                Order storage sellOrder = orderBook.orders[sellOrderId];
+                
+                if (!sellOrder.isActive || sellOrder.filledAmount >= sellOrder.amount) {
+                    continue;
+                }
+                
+                if (buyOrder.baseToken != sellOrder.baseToken || buyOrder.quoteToken != sellOrder.quoteToken) {
+                    continue;
+                }
+                
+                if (!_canMatch(buyOrder, sellOrder)) {
+                    continue;
+                }
+                
+                uint256 remainingSellAmount = sellOrder.amount - sellOrder.filledAmount;
+                uint256 matchAmount = remainingBuyAmount < remainingSellAmount ? 
+                    remainingBuyAmount : remainingSellAmount;
+                
+                uint256 matchPrice = _getMatchPrice(buyOrder, sellOrder);
+                
+                _executeTrade(buyOrderId, sellOrderId, matchAmount, matchPrice);
+                
+                buyOrder.filledAmount += matchAmount;
+                sellOrder.filledAmount += matchAmount;
+                
+                if (buyOrder.filledAmount >= buyOrder.amount) {
+                    buyOrder.isActive = false;
+                    orderBook.activeBuyOrders[buyOrderId] = false;
+                    orderBook.activeBuyOrderCount--;
+                }
+
+                if (sellOrder.filledAmount >= sellOrder.amount) {
+                    sellOrder.isActive = false;
+                    orderBook.activeSellOrders[sellOrderId] = false;
+                    orderBook.activeSellOrderCount--;
+                }
+                
+                remainingBuyAmount = buyOrder.amount - buyOrder.filledAmount;
+                remainingSellAmount = sellOrder.amount - sellOrder.filledAmount;
             }
         }
     }
     
-    function _calculateMatchPrice(Order storage buyOrder, Order storage sellOrder) internal view returns (uint256) {
-        if (!buyOrder.isMarketOrder && !sellOrder.isMarketOrder) {
-            return (buyOrder.price + sellOrder.price) / 2;
+    function _canMatch(Order storage buyOrder, Order storage sellOrder) internal view returns (bool) {
+        if (buyOrder.isMarketOrder && sellOrder.isMarketOrder) {
+            return true;
         }
         
+        if (buyOrder.isMarketOrder) {
+            return buyOrder.price >= sellOrder.price;
+        }
+        
+        if (sellOrder.isMarketOrder) {
+            return buyOrder.price >= sellOrder.price;
+        }
+        
+        return buyOrder.price >= sellOrder.price;
+    }
+    
+    function _getMatchPrice(Order storage buyOrder, Order storage sellOrder) internal view returns (uint256) {
         if (buyOrder.isMarketOrder && sellOrder.isMarketOrder) {
             return _getOraclePrice(buyOrder.baseToken, buyOrder.quoteToken);
         }
         
         if (buyOrder.isMarketOrder) {
             return sellOrder.price;
-        } else {
+        }
+        
+        if (sellOrder.isMarketOrder) {
             return buyOrder.price;
         }
+        
+        return buyOrder.price;
     }
     
     function _getOraclePrice(address baseToken, address quoteToken) internal view returns (uint256) {
-        if (address(priceOracle) == address(0)) {
-            return 100;
-        }
-        
-        try priceOracle.isPriceFeedValid(baseToken, quoteToken) returns (bool isValid) {
-            if (!isValid) {
-                return 100;
-            }
-        } catch {
-            return 100;
-        }
+        require(address(priceOracle) != address(0), "Price oracle not set");
+        require(_isTokenPairValid(baseToken, quoteToken), "Price feed not valid");
         
         try priceOracle.getPrice(baseToken, quoteToken) returns (int256 price) {
-            if (price <= 0) {
-                return 100;
-            }
+            require(price > 0, "Invalid oracle price");
             return uint256(price);
         } catch {
-            return 100;
+            revert("Oracle price fetch failed");
         }
     }
 
@@ -426,16 +482,19 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         Order storage buyOrder = orderBook.orders[buyOrderId];
         Order storage sellOrder = orderBook.orders[sellOrderId];
         
-        uint256 totalValue = amount * price;
+        uint256 totalValue = amount * price / 10**18;
         
         uint256 fee = (totalValue * FEE_RATE) / FEE_DENOMINATOR;
         uint256 netValue = totalValue - fee;
 
-        require(balances[address(this)][buyOrder.baseToken] >= amount, "Insufficient contract base token balance");
-        require(balances[address(this)][sellOrder.quoteToken] >= netValue, "Insufficient contract quote token balance");
-        
         _transferToUser(buyOrder.trader, buyOrder.baseToken, amount);
+        
         _transferToUser(sellOrder.trader, sellOrder.quoteToken, netValue);
+        
+        balances[buyOrder.trader][buyOrder.baseToken] += amount;
+        balances[sellOrder.trader][sellOrder.quoteToken] += netValue;
+        
+        balances[address(this)][sellOrder.quoteToken] += fee;
         
         emit FeeCollected(fee, sellOrder.quoteToken);
         emit OrderMatched(buyOrderId, sellOrderId, amount, price, fee);
@@ -459,30 +518,12 @@ contract TradingEngine is Initializable, ReentrancyGuardUpgradeable, OwnableUpgr
         uint256 activeBuyOrders,
         uint256 activeSellOrders
     ) {
-        totalBuyOrders = orderBook.buyOrderIds.length;
-        totalSellOrders = orderBook.sellOrderIds.length;
-        
-        uint256 activeBuy = 0;
-        uint256 activeSell = 0;
-        
-        for (uint256 i = 0; i < orderBook.buyOrderIds.length; i++) {
-            uint256 orderId = orderBook.buyOrderIds[i];
-            if (orderBook.orders[orderId].isActive) {
-                activeBuy++;
-            }
-        }
-        
-        for (uint256 i = 0; i < orderBook.sellOrderIds.length; i++) {
-            uint256 orderId = orderBook.sellOrderIds[i];
-            if (orderBook.orders[orderId].isActive) {
-                activeSell++;
-            }
-        }
-        
-        activeBuyOrders = activeBuy;
-        activeSellOrders = activeSell;
-        
-        return (totalBuyOrders, totalSellOrders, activeBuyOrders, activeSellOrders);
+        return (
+            orderBook.totalBuyOrderCount,
+            orderBook.totalSellOrderCount,
+            orderBook.activeBuyOrderCount,
+            orderBook.activeSellOrderCount
+        );
     }
 
     function getOraclePrice(address baseToken, address quoteToken) external view returns (uint256) {

@@ -1,0 +1,28 @@
+{
+  "network": "BSC Testnet",
+  "deployer": "0xf2345A8c176EB260B8a2A6015c5E204948ef14D6",
+  "contracts": {
+    "baseToken": {
+      "name": "WETH",
+      "address": "0xdC858B71EE44CaB1F2c39710aDAb399dA1Fb9659",
+      "symbol": "WETH"
+    },
+    "quoteToken": {
+      "name": "USDC",
+      "address": "0x82f29E95F5474a1c1364a882a8298572e018c59B",
+      "symbol": "USDC"
+    },
+    "mockPriceOracle": "0x3AFA4ff8611085b785a7a06dd8CCEFdfbE90B91d",
+    "tradingEngine": "0x8ae2557E9acdf7259311200388F9133bEf149340"
+  },
+  "tradingEngineConfig": {
+    "minOrderAmount": "0.01",
+    "maxOrderAmount": "100.0",
+    "feeRate": "0.05%"
+  },
+  "mockPrices": {
+    "WETH/USDC": "2000"
+  },
+  "timestamp": "2025-08-13T21:37:18.400Z",
+  "blockNumber": 61713238
+}
