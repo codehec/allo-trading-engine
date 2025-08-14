@@ -84,7 +84,6 @@ describe("OrderBook", function () {
         
         const ethPrice = 1000;
         
-        // Set up the MockPyth contract with price data
         await mockPyth.createPriceFeedUpdateData(
             ETH_PRICE_ID,
             ethPrice * 100000,
@@ -238,7 +237,6 @@ describe("OrderBook", function () {
         it("Should allow opening max trades per pair", async function () {
             const btcPrice = 2000;
             
-            // Set up BTC price data in the MockPyth contract
             await mockPyth.createPriceFeedUpdateData(
                 BTC_PRICE_ID,
                 btcPrice * 100000,
@@ -325,7 +323,6 @@ describe("OrderBook", function () {
             
             const allLimitOrders = await orderBook.getAllUserLimitOrders(traderBigMoneyAddress);
             
-            // Find the limit order in the array
             let foundOrder = false;
             for (let i = 0; i < allLimitOrders.length; i++) {
                 if (allLimitOrders[i].executionPrice === targetPrice) {
@@ -336,7 +333,6 @@ describe("OrderBook", function () {
             }
             expect(foundOrder).to.be.true;
             
-            // Use the existing price data from beforeEach
             await orderBook.connect(traderLoser).executeLimitOrder(
                 traderBigMoneyAddress,
                 PAIR_INDEX_ETHER,
@@ -359,7 +355,6 @@ describe("OrderBook", function () {
             
             const ethPrice = 1060;
             
-            // Set up the new price data in the MockPyth contract
             await mockPyth.createPriceFeedUpdateData(
                 ETH_PRICE_ID,
                 ethPrice * 100000,
@@ -718,7 +713,6 @@ describe("OrderBook", function () {
             
             const ethPrice = 900;
             
-            // Set up the new price data in the MockPyth contract
             await mockPyth.createPriceFeedUpdateData(
                 ETH_PRICE_ID,
                 ethPrice * 100000,
@@ -756,7 +750,6 @@ describe("OrderBook", function () {
             
             const ethPrice = 1020;
             
-            // Set up the new price data in the MockPyth contract
             await mockPyth.createPriceFeedUpdateData(
                 ETH_PRICE_ID,
                 ethPrice * 100000,
@@ -809,7 +802,6 @@ describe("OrderBook", function () {
                 { value: ethers.parseEther("0.001") }
             );
             
-            // Verify that all three positions were opened
             const allPositions = await orderBook.getAllUserPositions(traderBigMoneyAddress);
             let openPositionCount = 0;
             for (let i = 0; i < allPositions.length; i++) {
@@ -819,13 +811,11 @@ describe("OrderBook", function () {
             }
             expect(openPositionCount).to.equal(3);
             
-            // Test closing just one position to avoid balance issues
             await ethers.provider.send("evm_increaseTime", [1000]);
             await ethers.provider.send("evm_mine", []);
             
             const ethPrice = 500;
             
-            // Set up the new price data in the MockPyth contract
             await mockPyth.createPriceFeedUpdateData(
                 ETH_PRICE_ID,
                 ethPrice * 100000,
@@ -845,8 +835,7 @@ describe("OrderBook", function () {
                 updateDataArray,
                 { value: ethers.parseEther("0.001") }
             );
-            
-            // Verify that one position was closed
+        
             const positionsAfterClose = await orderBook.getAllUserPositions(traderBigMoneyAddress);
             let openPositionCountAfterClose = 0;
             for (let i = 0; i < positionsAfterClose.length; i++) {
